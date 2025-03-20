@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  backend:
+    image: hls-backend
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    volumes:
+      - /root/hls:/root/hls
+      - /root/sprite_images:/root/sprite_images
+      - ./output:/app/output
+    environment:
+      - NODE_ENV=production
+    restart: always
