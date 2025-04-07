@@ -213,6 +213,80 @@ router.get("/thumbnail/vtt", (req, res) => {
   });
 });
 
+// 스프라이트 설정
+const SPRITE_COLS = 10;
+const SPRITE_ROWS = 10;
+const SPRITE_PER_IMAGE = SPRITE_COLS * SPRITE_ROWS;
+
+const THUMB_WIDTH = 960;
+const THUMB_HEIGHT = 408;
+
+router.get("/thumbnail/vtt-merge", (req, res) => {
+  const rangesQuery = req.query.ranges;
+  let ranges;
+
+  try {
+    ranges = JSON.parse(decodeURIComponent(rangesQuery));
+
+    // 형식 검증
+    if (!Array.isArray(ranges) || !ranges.every((r) => typeof r.start === "number" && typeof r.end === "number")) {
+      return res.status(400).send("올바른 형식의 ranges 쿼리 파라미터가 필요합니다.");
+    }
+  } catch (e) {
+    return res.status(400).send("ranges 파라미터는 JSON 형식이어야 합니다.");
+  }
+
+  fs.readdir(SPRITE_IMAGE_DIR, (err, files) => {
+    if (err) {
+      return res.status(500).send("이미지 디렉토리 접근 오류");
+    }
+
+    const imageFiles = files
+      .filter((file) => file.startsWith("sprite_image_") && file.endsWith(".jpg"))
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/sprite_image_(\d+).jpg/)?.[1] || "0", 10);
+        const numB = parseInt(b.match(/sprite_image_(\d+).jpg/)?.[1] || "0", 10);
+        return numA - numB;
+      });
+
+    let vttContent = "WEBVTT\n\n";
+    let cueIndex = 1;
+    let vttTime = 0;
+
+    for (const range of ranges) {
+      const { start, end } = range;
+
+      for (let time = start; time < end; time++) {
+        const spriteIndex = Math.floor(time / SPRITE_PER_IMAGE);
+        const localIndex = time % SPRITE_PER_IMAGE;
+
+        const col = localIndex % SPRITE_COLS;
+        const row = Math.floor(localIndex / SPRITE_COLS);
+
+        const x = col * THUMB_WIDTH;
+        const y = row * THUMB_HEIGHT;
+
+        // VTT상 시간은 0초부터 시작해서 1초 단위로 증가
+        const startTimestamp = new Date(vttTime * 1000).toISOString().substr(11, 8) + ".000";
+        const endTimestamp = new Date((vttTime + 1) * 1000).toISOString().substr(11, 8) + ".000";
+
+        const imageName = imageFiles[spriteIndex];
+        if (!imageName) continue;
+
+        vttContent += `${cueIndex}\n`;
+        vttContent += `${startTimestamp} --> ${endTimestamp}\n`;
+        vttContent += `${imageName}#xywh=${x},${y},${THUMB_WIDTH},${THUMB_HEIGHT}\n\n`;
+
+        cueIndex++;
+        vttTime++;
+      }
+    }
+
+    res.setHeader("Content-Type", "text/vtt");
+    res.send(vttContent);
+  });
+});
+
 // 미리보기 썸네일 이미지 제공
 router.get("/thumbnail/:filename", (req, res) => {
   const filePath = path.join(SPRITE_IMAGE_DIR, req.params.filename);
@@ -221,9 +295,8 @@ router.get("/thumbnail/:filename", (req, res) => {
 
 // 미리보기 썸네일 생성
 router.post("/create/thumbnail", (req, res) => {
-  const { duration } = req.body;
+  const { duration, numFrames } = req.body;
   const durationInSeconds = parseInt(duration, 10);
-  const numFrames = 10;
   const interval = durationInSeconds / numFrames;
 
   const imagePaths = Array.from({ length: numFrames }, (_, index) => {
@@ -240,6 +313,17 @@ router.post("/create/thumbnail", (req, res) => {
 router.post("/create/thumbnail/:filename", (req, res) => {
   const filePath = path.join(IMAGE_DIRECTORY, req.body.path);
   sendFileIfExists(filePath, res, "Image not found");
+});
+
+// frame_000001 파일 처럼 50 ~ 1000까지 랜덤 이미지를 10개 생성해서 이미지 전송하는 api
+router.post("/preview/thumbnail", (req, res) => {
+  const numFrames = 10;
+  const imagePaths = Array.from({ length: numFrames }, (_, index) => {
+    const frameNumber = Math.floor(Math.random() * 950) + 50;
+    return `frame_${frameNumber.toString().padStart(6, "0")}.jpg`;
+  });
+
+  res.json({ imagePaths });
 });
 
 module.exports = router;
